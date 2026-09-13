@@ -1,0 +1,12 @@
+# 아무도 안 쓰는 PVC 하나.
+# WaitForFirstConsumer 라서 "쓰겠다는 파드"가 나타날 때까지 Pending 에 머문다.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lonely
+  namespace: stateful-demo
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 100Mi

@@ -1,0 +1,44 @@
+# ─────────────────────────────────────────────────────────────
+# kind 학습용 클러스터 정의
+#
+#   생성: kind create cluster --config cluster/kind-config.yaml
+#   삭제: kind delete cluster --name lab
+#
+# kind 는 노드를 "도커 컨테이너"로 띄운다. 컨테이너 안에서
+# containerd + kubelet 이 돌고, kubeadm 이 업스트림 쿠버네티스를
+# 그대로 부트스트랩한다. 그래서 k3s 같은 경량 배포판과 달리
+# 실제 운영 클러스터와 구성이 동일하다.
+# ─────────────────────────────────────────────────────────────
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: lab
+
+nodes:
+  # ── 컨트롤 플레인 ────────────────────────────────────────
+  # ingress-ready 라벨: ingress-nginx 가 이 노드에만 뜨도록 고정한다.
+  #   (kind 용 ingress-nginx 매니페스트가 이 라벨을 nodeSelector 로 쓴다)
+  #
+  # extraPortMappings: 맥의 80/443 을 이 노드 컨테이너로 직접 꽂는다.
+  #   kind 에는 LoadBalancer 를 실제로 할당해 줄 주체가 없어서,
+  #   이 포트 매핑이 외부 트래픽이 들어오는 유일한 통로가 된다.
+  #   → 브라우저에서 http://localhost 로 바로 접근 가능
+  - role: control-plane
+    image: kindest/node:v1.37.0
+    labels:
+      ingress-ready: "true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP
+
+  # ── 워커 2대 ─────────────────────────────────────────────
+  # 단일 노드였다면 스케줄러가 고를 대상이 하나뿐이라
+  # nodeSelector / affinity / taint·toleration / PDB 실습이 전부 무의미해진다.
+  # 워커를 2대 두면 "어느 노드로 갔는지"가 눈에 보인다.
+  - role: worker
+    image: kindest/node:v1.37.0
+  - role: worker
+    image: kindest/node:v1.37.0

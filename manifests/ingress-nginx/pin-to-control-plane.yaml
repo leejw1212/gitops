@@ -1,0 +1,27 @@
+# ─────────────────────────────────────────────────────────────
+# 왜 이 패치가 필요한가
+#
+# ingress-nginx 의 kind 용 매니페스트는 컨트롤러 컨테이너에
+# hostPort 80/443 을 직접 연다. 즉 "파드가 떠 있는 그 노드의"
+# 80/443 을 점유하는 방식이다.
+#
+# 그런데 우리 kind 설정은 맥의 80/443 을 control-plane 노드
+# 컨테이너에만 매핑해 뒀다(extraPortMappings). 따라서 컨트롤러가
+# 워커 노드에 스케줄되면 hostPort 는 그 워커에서 열리고,
+# 맥에서 http://localhost 로 접근하면 아무것도 받지 못한다.
+#
+# 상위 매니페스트는 nodeSelector 가 kubernetes.io/os: linux 뿐이라
+# 세 노드 어디로든 갈 수 있다. 그래서 kind-config.yaml 에서
+# control-plane 에 붙여 둔 ingress-ready 라벨로 위치를 고정한다.
+# ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingress-nginx-controller
+  namespace: ingress-nginx
+spec:
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+        ingress-ready: "true"

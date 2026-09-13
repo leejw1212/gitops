@@ -1,0 +1,34 @@
+# ─────────────────────────────────────────────────────────────
+# Calico 전용 — GlobalNetworkPolicy
+#
+# 표준 NetworkPolicy 로는 못 하는 두 가지를 쓴다.
+#
+#  1) action: Deny — 명시적 차단
+#     표준 NetworkPolicy 는 "허용 목록"만 쓸 수 있다. 무엇을 허용할지
+#     적으면 나머지가 자동으로 막히는 방식이라, "이것만 콕 집어 막고
+#     나머지는 다 열어 둬" 를 표현할 수 없다.
+#
+#  2) 네임스페이스에 매이지 않는다
+#     표준 NetworkPolicy 는 네임스페이스마다 따로 만들어야 한다.
+#     GlobalNetworkPolicy 는 클러스터 전체에 한 번에 적용된다.
+#     (metadata 에 namespace 가 없는 것을 보라)
+#
+# order 는 규칙 우선순위다. 숫자가 작을수록 먼저 평가된다.
+# ─────────────────────────────────────────────────────────────
+apiVersion: projectcalico.org/v3
+kind: GlobalNetworkPolicy
+metadata:
+  name: deny-blocked-to-web
+spec:
+  order: 100
+  # Calico 는 셀렉터를 이런 표현식으로 쓴다. 표준 라벨 셀렉터보다 자유롭다.
+  selector: app == 'web'
+  types:
+    - Ingress
+  ingress:
+    # role=blocked 인 파드는 명시적으로 차단한다.
+    - action: Deny
+      source:
+        selector: role == 'blocked'
+    # 나머지는 전부 허용한다. 표준 NetworkPolicy 에는 이런 규칙이 없다.
+    - action: Allow

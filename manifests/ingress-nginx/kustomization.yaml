@@ -1,0 +1,16 @@
+# ingress-nginx 를 kind 환경에 맞게 조립한다.
+#   deploy.yaml            : 업스트림 원본 (controller-v1.15.1 고정, 수정하지 않음)
+#   pin-to-control-plane   : 우리 환경에 필요한 차이만 패치로 분리
+#
+# 적용: kubectl apply -k manifests/ingress-nginx
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - deploy.yaml
+
+patches:
+  - path: pin-to-control-plane.yaml
+    target:
+      kind: Deployment
+      name: ingress-nginx-controller

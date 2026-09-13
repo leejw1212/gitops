@@ -1,0 +1,40 @@
+# ─────────────────────────────────────────────────────────────
+# Calico 설치 설정
+#
+# tigera-operator 가 이 리소스를 보고 calico-node 등을 알아서 배포한다.
+# 직접 데몬셋을 쓰는 게 아니라 "원하는 상태"만 적어 주는 방식이다.
+# ─────────────────────────────────────────────────────────────
+apiVersion: operator.tigera.io/v1
+kind: Installation
+metadata:
+  name: default
+spec:
+  calicoNetwork:
+    ipPools:
+      - name: default-ipv4-ippool
+        # ★ Calico 공식 문서는 192.168.0.0/16 을 쓰지만 그대로 두면 안 된다.
+        #   가정용 공유기가 대개 192.168.0.x 를 쓴다. 이 맥의 LAN 주소가
+        #   192.168.0.x 라, 기본값이면 파드 IP 와 집 네트워크가 겹친다.
+        #   kind 설정의 podSubnet 과 똑같이 맞춘다.
+        cidr: 10.244.0.0/16
+
+        # 노드마다 잘라 줄 덩어리 크기. /26 이면 노드당 64개.
+        blockSize: 26
+
+        # 노드끼리 다른 서브넷에 있을 때만 VXLAN 으로 감싼다.
+        # kind 는 모든 노드가 같은 도커 브리지(172.18.0.0/16)에 있어서
+        # 실제로는 감싸지 않고 그냥 라우팅한다.
+        encapsulation: VXLANCrossSubnet
+
+        # 파드가 클러스터 밖으로 나갈 때 노드 IP 로 바꿔 준다(NAT).
+        natOutgoing: Enabled
+
+        nodeSelector: all()
+---
+# Calico 전용 리소스(GlobalNetworkPolicy 등)를 kubectl 로 다루려면 필요하다.
+# 이게 없으면 CRD 로만 존재해서 검증이나 기본값 채움이 안 된다.
+apiVersion: operator.tigera.io/v1
+kind: APIServer
+metadata:
+  name: default
+spec: {}

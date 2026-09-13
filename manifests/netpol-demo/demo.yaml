@@ -1,0 +1,66 @@
+# ─────────────────────────────────────────────────────────────
+# NetworkPolicy 동작 확인용 실험 세트
+#
+#   web            : 요청을 받는 쪽 (:8080 에서 응답)
+#   client-allowed : 정책에서 허용할 클라이언트 (role=allowed)
+#   client-blocked : 정책에서 막을 클라이언트  (role=blocked)
+#
+# 정책을 걸면 blocked 만 막혀야 정상이다.
+# CNI 가 NetworkPolicy 를 구현하지 않으면 둘 다 그냥 통과한다.
+# ─────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: netpol-demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: netpol-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: web }
+  template:
+    metadata:
+      labels: { app: web }
+    spec:
+      containers:
+        - name: agnhost
+          image: registry.k8s.io/e2e-test-images/agnhost:2.47
+          args: ["netexec", "--http-port=8080"]
+          ports: [{ containerPort: 8080 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: netpol-demo
+spec:
+  selector: { app: web }
+  ports: [{ port: 8080, targetPort: 8080 }]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client-allowed
+  namespace: netpol-demo
+  labels: { role: allowed }
+spec:
+  containers:
+    - name: busybox
+      image: busybox:1.36
+      command: ["sleep", "36000"]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client-blocked
+  namespace: netpol-demo
+  labels: { role: blocked }
+spec:
+  containers:
+    - name: busybox
+      image: busybox:1.36
+      command: ["sleep", "36000"]

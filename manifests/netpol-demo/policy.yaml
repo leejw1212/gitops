@@ -1,0 +1,15 @@
+# web 파드로 들어오는 트래픽 중 role=allowed 인 파드에서 온 것만 허용한다.
+# 나머지는 전부 차단. (NetworkPolicy 는 "허용 목록" 방식이다)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-allow-only-allowed
+  namespace: netpol-demo
+spec:
+  podSelector:
+    matchLabels: { app: web }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { role: allowed }
