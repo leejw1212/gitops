@@ -1,0 +1,30 @@
+# ─────────────────────────────────────────────────────────────
+# ArgoCD UI 를 http://localhost/argocd 로 연다.
+#
+# 이 클러스터에는 이미 echo 앱이 localhost/ 를 쓰고 있어서
+# 호스트 이름을 나눌 수 없다. macOS 는 argocd.localhost 같은
+# 하위 이름을 자동으로 해석해 주지 않기 때문이다.
+# (리눅스는 되지만 맥은 /etc/hosts 를 직접 고쳐야 한다)
+#
+# 그래서 경로로 나눈다. 다만 경로로 나누려면 ArgoCD 쪽에도
+# "나는 /argocd 아래에 있다" 를 알려 줘야 한다. 안 그러면
+# 화면은 뜨는데 CSS·JS 주소가 전부 어긋난다. → cmd-params-cm 참고
+# ─────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server
+  namespace: argocd
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: localhost
+      http:
+        paths:
+          - path: /argocd
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server
+                port:
+                  number: 80

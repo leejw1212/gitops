@@ -19,6 +19,11 @@ metadata:
 spec:
   serviceName: notes
   replicas: 3
+
+  # 파드 번호 범위를 [2, 2+3) = 2,3,4 로 옮긴다.
+  # 개수는 3 그대로인데 0,1 이 빠지고 3,4 가 새로 생긴다.
+  ordinals:
+    start: 2
   # 만든 뒤에는 못 바꾸는 필드다. ArgoCD 가 어떻게 반응하는지 본다.
   podManagementPolicy: Parallel
   selector:
