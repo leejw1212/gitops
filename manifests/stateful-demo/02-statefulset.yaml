@@ -19,6 +19,8 @@ metadata:
 spec:
   serviceName: notes
   replicas: 3
+  # 만든 뒤에는 못 바꾸는 필드다. ArgoCD 가 어떻게 반응하는지 본다.
+  podManagementPolicy: Parallel
   selector:
     matchLabels: { app: notes }
   template:
