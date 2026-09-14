@@ -75,11 +75,16 @@ $('f').addEventListener('submit', async (e) => {
     });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || '실패했어요');
-    $('ci').src = j.image || ''; $('ci').style.display = j.image ? 'block' : 'none';
+    // fetcher 가 합성해 준 카드 이미지를 그대로 띄운다 (base64)
+    $('ci').src = j.card ? ('data:image/jpeg;base64,' + j.card) : '';
+    $('ci').style.display = j.card ? 'block' : 'none';
     $('ct').textContent = j.title || '';
     $('cd').textContent = j.description || '';
-    $('cm').textContent = `${j.site || new URL(j.url).hostname} · 가져오는 데 ${j.elapsed}초`
-                        + ` · 화면에서 기다린 시간 ${((performance.now()-t0)/1000).toFixed(1)}초`;
+    const st = j.steps || {};
+    $('cm').textContent =
+      `${j.site || new URL(j.url).hostname} · 총 ${j.elapsed}초`
+      + ` (페이지 ${st.page ?? '-'}s · 이미지 ${st.image_download ?? '-'}s · 합성 ${st.render ?? '-'}s)`
+      + ` · 화면에서 기다린 시간 ${((performance.now()-t0)/1000).toFixed(1)}초`;
     $('card').style.display = 'block';
   } catch (e) {
     $('err').textContent = e.message; $('err').style.display = 'block';
