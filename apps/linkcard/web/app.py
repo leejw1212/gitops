@@ -5,11 +5,14 @@
 이 불편함을 직접 겪은 다음에 큐를 넣는다.
 """
 import os
+import threading
 import time
 import urllib.request
+import uuid
 import json as _json
 from urllib.error import HTTPError, URLError
 
+import pika
 from flask import Flask, jsonify, render_template_string, request
 
 app = Flask(__name__)
@@ -23,6 +26,35 @@ TIMEOUT = float(os.environ.get("FETCHER_TIMEOUT", "15"))
 # 있다는 걸 모른다. 그대로 두면 화면의 JS 가 /api/cards 를 절대 경로로
 # 불러서 엉뚱한 서비스로 간다. 그래서 접두어를 밖에서 알려 준다.
 BASE_PATH = os.environ.get("BASE_PATH", "").rstrip("/")
+
+RABBIT_URL = os.environ.get(
+    "RABBIT_URL", "amqp://linkcard:linkcard-dev@rabbitmq:5672/%2F")
+QUEUE = os.environ.get("QUEUE", "card.jobs")
+
+# 결과를 잠깐 들고 있는 곳. 지금은 파드 메모리라 재시작하면 사라진다.
+# 파드가 여럿이면 접수한 파드와 조회하는 파드가 달라 못 찾을 수도 있다.
+# 뒤 편에서 제대로 된 저장소로 옮긴다 — 지금은 큐 자체에 집중한다.
+_results = {}
+_lock = threading.Lock()
+
+
+def _publish(job_id, url):
+    """큐에 작업을 넣는다. 넣기만 하고 결과는 기다리지 않는다."""
+    params = pika.URLParameters(RABBIT_URL)
+    params.heartbeat = 30
+    conn = pika.BlockingConnection(params)
+    try:
+        ch = conn.channel()
+        ch.queue_declare(queue=QUEUE, durable=True)   # 브로커가 죽어도 큐는 남는다
+        ch.basic_publish(
+            exchange="", routing_key=QUEUE,
+            body=_json.dumps({"job_id": job_id, "url": url}),
+            properties=pika.BasicProperties(
+                delivery_mode=2,                       # 메시지도 디스크에 남긴다
+                content_type="application/json"),
+        )
+    finally:
+        conn.close()
 
 PAGE = """<!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
@@ -76,27 +108,41 @@ $('f').addEventListener('submit', async (e) => {
   $('wait').style.display = 'block'; $('b').disabled = true;
   const t0 = performance.now();
   try {
+    // 1) 접수만 한다. 바로 돌아온다.
     const r = await fetch(BASE + '/api/cards', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: $('u').value }),
     });
-    const j = await r.json();
-    if (!j.ok) throw new Error(j.error || '실패했어요');
-    // fetcher 가 합성해 준 카드 이미지를 그대로 띄운다 (base64)
+    const a = await r.json();
+    if (!a.ok) throw new Error(a.error || '접수에 실패했어요');
+    const accepted = ((performance.now() - t0) / 1000).toFixed(2);
+    $('wait').textContent = `접수됐어요 (${accepted}초). 결과를 기다리는 중…`;
+
+    // 2) 끝났는지 물어본다 (폴링)
+    let j = null;
+    for (let i = 0; i < 60; i++) {
+      await new Promise((s) => setTimeout(s, 500));
+      const q = await fetch(BASE + '/api/cards/' + a.job_id);
+      j = await q.json();
+      if (j.status === 'done' || j.status === 'failed') break;
+    }
+    if (!j || j.status !== 'done') throw new Error(j?.error || '아직 끝나지 않았어요');
+
     $('ci').src = j.card ? ('data:image/jpeg;base64,' + j.card) : '';
     $('ci').style.display = j.card ? 'block' : 'none';
     $('ct').textContent = j.title || '';
     $('cd').textContent = j.description || '';
     const st = j.steps || {};
     $('cm').textContent =
-      `${j.site || new URL(j.url).hostname} · 총 ${j.elapsed}초`
+      `${j.site || ''} · 접수까지 ${accepted}초 · 처리 ${j.elapsed}초`
       + ` (페이지 ${st.page ?? '-'}s · 이미지 ${st.image_download ?? '-'}s · 합성 ${st.render ?? '-'}s)`
-      + ` · 화면에서 기다린 시간 ${((performance.now()-t0)/1000).toFixed(1)}초`;
+      + ` · 전체 ${j.total_wait}초`;
     $('card').style.display = 'block';
   } catch (e) {
     $('err').textContent = e.message; $('err').style.display = 'block';
   } finally {
     $('wait').style.display = 'none'; $('b').disabled = false;
+    $('wait').textContent = '가져오는 중…';
   }
 });
 </script></body></html>"""
@@ -114,30 +160,50 @@ def index():
 
 @app.post("/api/cards")
 def create_card():
+    """접수만 하고 바로 답한다. 실제 작업은 워커가 뒤에서 한다."""
     url = (request.json or {}).get("url", "").strip()
+    if not url.startswith(("http://", "https://")):
+        return jsonify(ok=False, error="http(s) 로 시작하는 주소만 받습니다."), 400
+
+    job_id = uuid.uuid4().hex[:12]
     started = time.time()
-
-    # ── 동기 호출. fetcher 가 끝날 때까지 여기서 멈춰 있다. ──
-    body = _json.dumps({"url": url}).encode()
-    req = urllib.request.Request(
-        f"{FETCHER_URL}/fetch", data=body,
-        headers={"Content-Type": "application/json"},
-    )
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
-            data = _json.loads(r.read().decode())
-    except HTTPError as e:
-        try:
-            data = _json.loads(e.read().decode())
-        except Exception:
-            data = {"ok": False, "error": f"fetcher 오류 HTTP {e.code}"}
-        return jsonify(data), e.code
-    except (URLError, TimeoutError) as e:
-        return jsonify(ok=False, error=f"fetcher 에 닿지 못했습니다: {e}"), 504
+        _publish(job_id, url)
+    except Exception as e:
+        return jsonify(ok=False, error=f"큐에 넣지 못했습니다: {e}"), 503
 
-    data["total_elapsed"] = round(time.time() - started, 2)
-    app.logger.info("card created url=%s elapsed=%s", url, data["total_elapsed"])
-    return jsonify(data)
+    with _lock:
+        _results[job_id] = {"status": "queued", "url": url, "queued_at": started}
+
+    app.logger.info("job queued id=%s url=%s in=%.3fs",
+                    job_id, url, time.time() - started)
+    # 202 Accepted — "받았고, 아직 안 끝났다"
+    return jsonify(ok=True, job_id=job_id, status="queued",
+                   accept_elapsed=round(time.time() - started, 3)), 202
+
+
+@app.get("/api/cards/<job_id>")
+def get_card(job_id):
+    with _lock:
+        r = _results.get(job_id)
+    if r is None:
+        return jsonify(ok=False, status="unknown",
+                       error="그런 작업이 없습니다. (파드가 여럿이라 다른 파드가 받았을 수 있어요)"), 404
+    return jsonify(ok=True, **r)
+
+
+@app.post("/internal/result")
+def put_result():
+    """워커가 끝난 결과를 돌려주는 자리."""
+    d = request.json or {}
+    job_id = d.pop("job_id", "")
+    with _lock:
+        prev = _results.get(job_id, {})
+        waited = round(time.time() - prev.get("queued_at", time.time()), 2)
+        _results[job_id] = {"status": "done" if d.get("ok") else "failed",
+                            "total_wait": waited, **d}
+    app.logger.info("job done id=%s ok=%s wait=%.2fs", job_id, d.get("ok"), waited)
+    return jsonify(ok=True)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,69 @@
+# ─────────────────────────────────────────────────────────────
+# RabbitMQ — 요청을 받아 두는 곳.
+#
+# StatefulSet 을 쓰는 이유가 있다. 큐에 쌓인 메시지는 디스크에 남아야 한다.
+# 파드가 죽었다 살아날 때 같은 저장소를 다시 물어야 하므로 이름이 고정돼야
+# 하고, 그건 Deployment 로는 안 된다.
+#   → https://autops.run/statefulset-pvc-basics/
+# ─────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  namespace: linkcard
+spec:
+  clusterIP: None            # 헤드리스 — 파드에 고정 이름을 달아 준다
+  selector: { app: rabbitmq }
+  ports:
+    - name: amqp
+      port: 5672
+    - name: management
+      port: 15672
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  namespace: linkcard
+spec:
+  serviceName: rabbitmq
+  replicas: 1
+  selector:
+    matchLabels: { app: rabbitmq }
+  template:
+    metadata:
+      labels: { app: rabbitmq }
+    spec:
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:4-management
+          ports:
+            - { name: amqp, containerPort: 5672 }
+            - { name: management, containerPort: 15672 }
+          env:
+            # 실습용 계정이다. 실제 운영이라면 Secret 으로 뺀다.
+            - { name: RABBITMQ_DEFAULT_USER, value: "linkcard" }
+            - { name: RABBITMQ_DEFAULT_PASS, value: "linkcard-dev" }
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/rabbitmq
+          readinessProbe:
+            exec: { command: ["rabbitmq-diagnostics", "-q", "ping"] }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 10
+          livenessProbe:
+            exec: { command: ["rabbitmq-diagnostics", "-q", "ping"] }
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 15
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits:   { memory: 768Mi }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 1Gi
