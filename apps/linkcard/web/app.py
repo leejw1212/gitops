@@ -196,7 +196,9 @@ def get_card(job_id):
     r = _load(job_id)
     if r is None:
         return jsonify(ok=False, status="unknown", error="그런 작업이 없습니다."), 404
-    return jsonify(ok=True, **r)
+    # 저장된 결과에 이미 ok 가 들어 있다. ok=True 를 또 주면
+    # "multiple values for keyword argument 'ok'" 로 터진다.
+    return jsonify(r)
 
 
 @app.post("/internal/result")
