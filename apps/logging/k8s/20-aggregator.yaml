@@ -26,12 +26,17 @@ spec:
             - { name: forward, containerPort: 24224 }
           volumeMounts:
             - { name: config, mountPath: /fluentd/etc/custom }
+            # OpenSearch 로 보내기 전 버퍼. 파드 안에만 있어서 파드가 바뀌면 사라진다.
+            # 그래도 괜찮은 이유: forwarder 쪽에도 노드 디스크 버퍼가 있어, 못 보낸 것은 거기서 다시 보낸다.
+            - { name: buffer, mountPath: /fluentd/buffer }
           resources:
             requests: { cpu: 50m, memory: 100Mi }
             limits:   { memory: 300Mi }
       volumes:
         - name: config
           configMap: { name: fluentd-aggregator-config }
+        - name: buffer
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
