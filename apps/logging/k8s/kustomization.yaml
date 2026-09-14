@@ -1,0 +1,16 @@
+# 설정 파일(config/*.conf) 로 ConfigMap 을 만든다.
+# 설정이 바뀌면 ConfigMap 이름 끝의 해시가 바뀌고, 그걸 쓰는 파드가 알아서 다시 뜬다.
+# 설정만 고치고 파드는 옛 설정으로 계속 도는 실수를 막아 준다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: logging
+resources:
+  - 00-namespace.yaml
+  - 10-rbac.yaml
+  - 20-aggregator.yaml
+  - 30-forwarder.yaml
+configMapGenerator:
+  - name: fluentd-config
+    files:
+      - config/forwarder.conf
+      - config/aggregator.conf

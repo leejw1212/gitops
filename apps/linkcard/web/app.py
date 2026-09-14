@@ -17,6 +17,16 @@ from flask import Flask, jsonify, render_template_string, request
 
 app = Flask(__name__)
 
+# gunicorn 아래서는 app.logger.info 가 아무 데도 찍히지 않는다. Flask 로거가
+# 따로 설정해 주지 않으면 WARNING 이상만 내보내기 때문이다. 실제로 web 로그에
+# 'job queued' 줄이 0개였다. gunicorn 의 로거에 붙여 같은 곳(stderr)으로,
+# 같은 수준(INFO)으로 내보낸다.
+import logging  # noqa: E402
+_gunicorn_logger = logging.getLogger("gunicorn.error")
+if _gunicorn_logger.handlers:
+    app.logger.handlers = _gunicorn_logger.handlers
+    app.logger.setLevel(_gunicorn_logger.level)
+
 # 클러스터 안에서는 서비스 이름으로 서로를 부른다.
 # linkcard-fetcher 는 같은 네임스페이스의 Service 이름이다.
 FETCHER_URL = os.environ.get("FETCHER_URL", "http://linkcard-fetcher:8000")

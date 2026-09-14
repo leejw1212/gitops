@@ -1,0 +1,50 @@
+# ─────────────────────────────────────────────────────────────
+# forwarder — 노드마다 하나씩. 그래서 Deployment 가 아니라 DaemonSet 이다.
+#
+# 로그 파일은 노드의 디스크에 있다. 파드를 몇 개 띄울지가 아니라
+# "노드마다 반드시 하나" 가 필요하므로 DaemonSet 을 쓴다.
+#
+# control-plane 노드에는 뜨지 않는다. taint 가 걸려 있고 toleration 을
+# 주지 않았기 때문이다. linkcard 파드는 워커에만 뜨니 그걸로 충분하다.
+# ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluentd-forwarder
+  namespace: logging
+  labels: { app: fluentd-forwarder }
+spec:
+  selector:
+    matchLabels: { app: fluentd-forwarder }
+  template:
+    metadata:
+      labels: { app: fluentd-forwarder }
+    spec:
+      serviceAccountName: fluentd
+      containers:
+        - name: fluentd
+          image: fluent/fluentd-kubernetes-daemonset:v1.19-debian-opensearch-1
+          command: ["fluentd", "-c", "/fluentd/etc/custom/forwarder.conf"]
+          env:
+            # 메타데이터 필터가 "내 노드의 파드" 만 지켜보게 해 API 부담을 줄인다.
+            - name: K8S_NODE_NAME
+              valueFrom:
+                fieldRef: { fieldPath: spec.nodeName }
+          volumeMounts:
+            - { name: varlog, mountPath: /var/log, readOnly: true }
+            - { name: state,  mountPath: /var/lib/fluentd }
+            - { name: config, mountPath: /fluentd/etc/custom }
+          resources:
+            requests: { cpu: 50m, memory: 100Mi }
+            limits:   { memory: 300Mi }
+      volumes:
+        # 노드의 /var/log 를 그대로 들여다본다.
+        # /var/log/containers 의 파일은 /var/log/pods 로 가는 링크라 둘 다 이 안에 있다.
+        - name: varlog
+          hostPath: { path: /var/log }
+        # 읽은 위치(pos)와 못 보낸 버퍼를 노드 디스크에 둔다.
+        # emptyDir 로 두면 forwarder 가 재시작될 때 처음부터 다시 읽어 중복이 생긴다.
+        - name: state
+          hostPath: { path: /var/lib/fluentd, type: DirectoryOrCreate }
+        - name: config
+          configMap: { name: fluentd-config }

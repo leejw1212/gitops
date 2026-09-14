@@ -1,0 +1,44 @@
+# ─────────────────────────────────────────────────────────────
+# aggregator — 로그가 모이는 한곳. 하나만 띄운다.
+# forwarder 들이 서비스 이름(fluentd-aggregator)으로 찾아온다.
+# ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fluentd-aggregator
+  namespace: logging
+  labels: { app: fluentd-aggregator }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: fluentd-aggregator }
+  template:
+    metadata:
+      labels: { app: fluentd-aggregator }
+    spec:
+      containers:
+        - name: fluentd
+          image: fluent/fluentd-kubernetes-daemonset:v1.19-debian-opensearch-1
+          # 이미지에 들어 있는 기본 설정(OpenSearch 로 보내기 등)을 쓰지 않고
+          # 우리가 쓴 설정 파일을 직접 가리킨다.
+          command: ["fluentd", "-c", "/fluentd/etc/custom/aggregator.conf"]
+          ports:
+            - { name: forward, containerPort: 24224 }
+          volumeMounts:
+            - { name: config, mountPath: /fluentd/etc/custom }
+          resources:
+            requests: { cpu: 50m, memory: 100Mi }
+            limits:   { memory: 300Mi }
+      volumes:
+        - name: config
+          configMap: { name: fluentd-config }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fluentd-aggregator
+  namespace: logging
+spec:
+  selector: { app: fluentd-aggregator }
+  ports:
+    - { name: forward, port: 24224, targetPort: 24224, protocol: TCP }

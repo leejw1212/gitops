@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: web
-          image: linkcard-web:v7
+          image: linkcard-web:v8
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
