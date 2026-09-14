@@ -129,14 +129,23 @@ $('f').addEventListener('submit', async (e) => {
     $('wait').textContent = `접수됐어요 (${accepted}초). 결과를 기다리는 중…`;
 
     // 2) 끝났는지 물어본다 (폴링)
+    //    재시도가 붙으면 8초 + 5초 + 8초 + 15초 + 8초 로 44초 가까이 걸릴 수 있다.
+    //    그래서 90초까지 기다린다.
     let j = null;
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 180; i++) {
       await new Promise((s) => setTimeout(s, 500));
       const q = await fetch(BASE + '/api/cards/' + a.job_id);
       j = await q.json();
+      if (j.status === 'retrying') {
+        $('wait').textContent =
+          `실패해서 다시 시도하는 중이에요 (${j.attempt}/${j.max_attempts} 실패, ${j.next_retry_in}초 뒤 재시도) — ${j.error || ''}`;
+      }
       if (j.status === 'done' || j.status === 'failed') break;
     }
-    if (!j || j.status !== 'done') throw new Error(j?.error || '아직 끝나지 않았어요');
+    if (!j || j.status !== 'done') {
+      const tries = j && j.attempt ? ` (${j.attempt}번 시도)` : '';
+      throw new Error((j?.error || '아직 끝나지 않았어요') + tries);
+    }
 
     $('ci').src = j.card ? ('data:image/jpeg;base64,' + j.card) : '';
     $('ci').style.display = j.card ? 'block' : 'none';
@@ -208,8 +217,12 @@ def put_result():
     job_id = d.pop("job_id", "")
     prev = _load(job_id) or {}
     waited = round(time.time() - prev.get("queued_at", time.time()), 2)
-    _save(job_id, {"status": "done" if d.get("ok") else "failed",
-                   "total_wait": waited, **d})
+    # 워커가 status 를 직접 주면(retrying) 그걸 쓰고, 아니면 ok 로 판단한다.
+    status = d.pop("status", None) or ("done" if d.get("ok") else "failed")
+    # queued_at 을 그대로 들고 간다. 안 그러면 재시도 결과가 들어올 때마다
+    # 접수 시각이 사라져 total_wait 이 0 으로 찍힌다.
+    _save(job_id, {**d, "status": status, "total_wait": waited,
+                   "queued_at": prev.get("queued_at"), "url": prev.get("url", d.get("url"))})
     app.logger.info("job done id=%s ok=%s wait=%.2fs", job_id, d.get("ok"), waited)
     return jsonify(ok=True)
 

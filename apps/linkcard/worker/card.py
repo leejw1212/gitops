@@ -158,16 +158,24 @@ def _render_card(title, site, img_bytes):
 
 def build_card(url):
     """URL 하나를 받아 카드까지 만든다. 실패하면 ok=False 로 돌려준다."""
+    # retryable — 다시 하면 될 수도 있는 실패인가. 워커가 재시도 여부를 이걸로 정한다.
     if not url.startswith(("http://", "https://")):
-        return {"ok": False, "error": "http(s) 로 시작하는 주소만 받습니다."}
+        return {"ok": False, "retryable": False, "code": "bad_url",
+                "error": "http(s) 로 시작하는 주소만 받습니다."}
 
     t0 = time.time(); steps = {}
     try:
         html = _get(url, 200_000).decode("utf-8", errors="replace")
     except HTTPError as e:
-        return {"ok": False, "error": f"HTTP {e.code}", "elapsed": round(time.time()-t0, 2)}
+        # 5xx 와 429(너무 많은 요청)는 상대 서버 사정이다. 잠시 뒤엔 될 수 있다.
+        # 404·403 같은 나머지 4xx 는 몇 번을 다시 해도 같다.
+        retry = e.code >= 500 or e.code == 429
+        return {"ok": False, "retryable": retry, "code": f"http_{e.code}",
+                "error": f"HTTP {e.code}", "elapsed": round(time.time()-t0, 2)}
     except (URLError, TimeoutError) as e:
-        return {"ok": False, "error": f"가져오지 못했습니다: {e}", "elapsed": round(time.time()-t0, 2)}
+        # 타임아웃·연결 실패. 일시적인 네트워크 문제일 수 있으니 재시도한다.
+        return {"ok": False, "retryable": True, "code": "network",
+                "error": f"가져오지 못했습니다: {e}", "elapsed": round(time.time()-t0, 2)}
     steps["page"] = round(time.time() - t0, 2)
 
     p = OpenGraphParser(); p.feed(html)

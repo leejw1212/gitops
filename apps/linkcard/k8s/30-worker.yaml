@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: worker
-          image: linkcard-worker:v1
+          image: linkcard-worker:v2
           imagePullPolicy: IfNotPresent
           env:
             - { name: RABBIT_URL, value: "amqp://linkcard:linkcard-dev@rabbitmq:5672/%2F" }
@@ -29,6 +29,10 @@ spec:
             # 한 번에 하나씩만 받아 간다. 이게 없으면 워커 하나가 큐를
             # 쓸어 가서 다른 워커가 논다.
             - { name: PREFETCH, value: "1" }
+            # 첫 시도 포함 최대 3번. 재시도 사이는 5초, 15초로 점점 길게.
+            # 실습이라 짧게 잡았다. 실제로는 분 단위로 잡는 경우가 많다.
+            - { name: MAX_ATTEMPTS, value: "3" }
+            - { name: RETRY_DELAYS, value: "5,15" }
           resources:
             requests: { cpu: 50m, memory: 96Mi }
             limits:   { memory: 320Mi }
