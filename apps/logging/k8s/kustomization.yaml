@@ -9,8 +9,13 @@ resources:
   - 10-rbac.yaml
   - 20-aggregator.yaml
   - 30-forwarder.yaml
+#
+# forwarder 와 aggregator 설정을 ConfigMap 하나에 묶으면, 한쪽만 고쳐도
+# 해시가 바뀌어 상관없는 쪽까지 다시 뜬다. 그래서 나눈다.
 configMapGenerator:
-  - name: fluentd-config
+  - name: fluentd-forwarder-config
     files:
-      - config/forwarder.conf
-      - config/aggregator.conf
+      - fluent.conf=config/forwarder.conf
+  - name: fluentd-aggregator-config
+    files:
+      - fluent.conf=config/aggregator.conf

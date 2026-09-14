@@ -24,7 +24,7 @@ spec:
       containers:
         - name: fluentd
           image: fluent/fluentd-kubernetes-daemonset:v1.19-debian-opensearch-1
-          command: ["fluentd", "-c", "/fluentd/etc/custom/forwarder.conf"]
+          command: ["fluentd", "-c", "/fluentd/etc/custom/fluent.conf"]
           env:
             # 메타데이터 필터가 "내 노드의 파드" 만 지켜보게 해 API 부담을 줄인다.
             - name: K8S_NODE_NAME
@@ -47,4 +47,4 @@ spec:
         - name: state
           hostPath: { path: /var/lib/fluentd, type: DirectoryOrCreate }
         - name: config
-          configMap: { name: fluentd-config }
+          configMap: { name: fluentd-forwarder-config }

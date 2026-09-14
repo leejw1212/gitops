@@ -21,7 +21,7 @@ spec:
           image: fluent/fluentd-kubernetes-daemonset:v1.19-debian-opensearch-1
           # 이미지에 들어 있는 기본 설정(OpenSearch 로 보내기 등)을 쓰지 않고
           # 우리가 쓴 설정 파일을 직접 가리킨다.
-          command: ["fluentd", "-c", "/fluentd/etc/custom/aggregator.conf"]
+          command: ["fluentd", "-c", "/fluentd/etc/custom/fluent.conf"]
           ports:
             - { name: forward, containerPort: 24224 }
           volumeMounts:
@@ -31,7 +31,7 @@ spec:
             limits:   { memory: 300Mi }
       volumes:
         - name: config
-          configMap: { name: fluentd-config }
+          configMap: { name: fluentd-aggregator-config }
 ---
 apiVersion: v1
 kind: Service
