@@ -5,7 +5,6 @@
 이 불편함을 직접 겪은 다음에 큐를 넣는다.
 """
 import os
-import threading
 import time
 import urllib.request
 import uuid
@@ -13,6 +12,7 @@ import json as _json
 from urllib.error import HTTPError, URLError
 
 import pika
+import redis
 from flask import Flask, jsonify, render_template_string, request
 
 app = Flask(__name__)
@@ -31,11 +31,21 @@ RABBIT_URL = os.environ.get(
     "RABBIT_URL", "amqp://linkcard:linkcard-dev@rabbitmq:5672/%2F")
 QUEUE = os.environ.get("QUEUE", "card.jobs")
 
-# 결과를 잠깐 들고 있는 곳. 지금은 파드 메모리라 재시작하면 사라진다.
-# 파드가 여럿이면 접수한 파드와 조회하는 파드가 달라 못 찾을 수도 있다.
-# 뒤 편에서 제대로 된 저장소로 옮긴다 — 지금은 큐 자체에 집중한다.
-_results = {}
-_lock = threading.Lock()
+# 결과는 Redis 에 둔다. 파드 메모리에 두면 접수한 파드와 조회하는 파드가
+# 달라 404 가 난다. 실제로 그랬다 — 파드를 여러 개 띄우려면 상태를
+# 파드 밖에 둬야 한다.
+REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+RESULT_TTL = int(os.environ.get("RESULT_TTL", "3600"))
+_r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+
+
+def _save(job_id, data):
+    _r.setex(f"job:{job_id}", RESULT_TTL, _json.dumps(data))
+
+
+def _load(job_id):
+    raw = _r.get(f"job:{job_id}")
+    return _json.loads(raw) if raw else None
 
 
 def _publish(job_id, url):
@@ -172,8 +182,7 @@ def create_card():
     except Exception as e:
         return jsonify(ok=False, error=f"큐에 넣지 못했습니다: {e}"), 503
 
-    with _lock:
-        _results[job_id] = {"status": "queued", "url": url, "queued_at": started}
+    _save(job_id, {"status": "queued", "url": url, "queued_at": started})
 
     app.logger.info("job queued id=%s url=%s in=%.3fs",
                     job_id, url, time.time() - started)
@@ -184,11 +193,9 @@ def create_card():
 
 @app.get("/api/cards/<job_id>")
 def get_card(job_id):
-    with _lock:
-        r = _results.get(job_id)
+    r = _load(job_id)
     if r is None:
-        return jsonify(ok=False, status="unknown",
-                       error="그런 작업이 없습니다. (파드가 여럿이라 다른 파드가 받았을 수 있어요)"), 404
+        return jsonify(ok=False, status="unknown", error="그런 작업이 없습니다."), 404
     return jsonify(ok=True, **r)
 
 
@@ -197,11 +204,10 @@ def put_result():
     """워커가 끝난 결과를 돌려주는 자리."""
     d = request.json or {}
     job_id = d.pop("job_id", "")
-    with _lock:
-        prev = _results.get(job_id, {})
-        waited = round(time.time() - prev.get("queued_at", time.time()), 2)
-        _results[job_id] = {"status": "done" if d.get("ok") else "failed",
-                            "total_wait": waited, **d}
+    prev = _load(job_id) or {}
+    waited = round(time.time() - prev.get("queued_at", time.time()), 2)
+    _save(job_id, {"status": "done" if d.get("ok") else "failed",
+                   "total_wait": waited, **d})
     app.logger.info("job done id=%s ok=%s wait=%.2fs", job_id, d.get("ok"), waited)
     return jsonify(ok=True)
 

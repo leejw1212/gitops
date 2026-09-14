@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: web
-          image: linkcard-web:v4
+          image: linkcard-web:v5
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
@@ -29,6 +29,10 @@ spec:
             # 이제 fetcher 를 직접 부르지 않는다. 큐에 넣는다.
             - name: RABBIT_URL
               value: "amqp://linkcard:linkcard-dev@rabbitmq:5672/%2F"
+            # 결과는 파드 밖(Redis)에 둔다. 파드 메모리에 두면 파드가
+            # 여럿일 때 접수한 파드와 조회하는 파드가 달라 404 가 난다.
+            - name: REDIS_URL
+              value: "redis://redis:6379/0"
             # 인그레스가 떼어 내는 접두어를 앱에 알려 준다.
             # 이걸 안 주면 화면의 JS 가 /api/cards 를 절대 경로로 불러
             # 루트에 붙어 있는 다른 서비스로 요청이 새어 나간다.
