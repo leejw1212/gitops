@@ -20,3 +20,4 @@ configMapGenerator:
   - name: fluentd-aggregator-config
     files:
       - fluent.conf=config/aggregator.conf
+      - index-template.json=config/index-template.json

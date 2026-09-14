@@ -1,0 +1,41 @@
+{
+  "index_patterns": ["linkcard-*"],
+  "priority": 100,
+  "_meta": {
+    "description": "linkcard 로그 인덱스의 칸 타입. 글자는 기본 keyword(정확히 일치), 숫자는 숫자로. 노드가 하나라 복제본은 0."
+  },
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "index.mapping.ignore_malformed": true
+    },
+    "mappings": {
+      "dynamic_templates": [
+        {
+          "strings_as_keyword": {
+            "match_mapping_type": "string",
+            "mapping": { "type": "keyword", "ignore_above": 1024 }
+          }
+        }
+      ],
+      "properties": {
+        "@timestamp":     { "type": "date" },
+        "message":        { "type": "text" },
+        "error":          { "type": "text", "fields": { "keyword": { "type": "keyword", "ignore_above": 256 } } },
+        "status":         { "type": "integer" },
+        "ms":             { "type": "float" },
+        "request_time":   { "type": "float" },
+        "upstream_time":  { "type": "float" },
+        "bytes":          { "type": "long" },
+        "request_length": { "type": "long" },
+        "attempt":        { "type": "integer" },
+        "max_attempts":   { "type": "integer" },
+        "delay":          { "type": "integer" },
+        "elapsed":        { "type": "float" },
+        "total_wait":     { "type": "float" },
+        "accept_ms":      { "type": "float" }
+      }
+    }
+  }
+}
