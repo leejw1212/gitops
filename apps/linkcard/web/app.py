@@ -1,36 +1,23 @@
 """web — 사용자가 URL 을 넣는 화면과 API.
 
-지금은 fetcher 를 '동기로' 부른다. 즉 fetcher 가 바깥 사이트를 다 긁어올
-때까지 이 요청이 붙잡혀 있다. 사용자는 그동안 빈 화면을 본다.
-이 불편함을 직접 겪은 다음에 큐를 넣는다.
+POST /api/cards 는 작업을 큐(RabbitMQ)에 넣고 곧바로 202 를 돌려준다.
+실제 작업은 worker 가 뒤에서 하고, 결과를 /internal/result 로 알려 준다.
+결과는 Redis 에 둬서 web 파드가 여럿이어도 어느 파드든 조회할 수 있다.
+
+로그는 사건(event) 이름이 붙은 JSON 한 줄로 남긴다. 모든 줄에 request_id 를
+붙여, 사용자가 누른 요청 하나를 ingress → web → worker 로 한 번호로 따라간다.
 """
-import os
-import time
-import urllib.request
-import uuid
 import json as _json
-from urllib.error import HTTPError, URLError
+import os
+import sys
+import time
+import uuid
 
 import pika
 import redis
 from flask import Flask, jsonify, render_template_string, request
 
 app = Flask(__name__)
-
-# gunicorn 아래서는 app.logger.info 가 아무 데도 찍히지 않는다. Flask 로거가
-# 따로 설정해 주지 않으면 WARNING 이상만 내보내기 때문이다. 실제로 web 로그에
-# 'job queued' 줄이 0개였다. gunicorn 의 로거에 붙여 같은 곳(stderr)으로,
-# 같은 수준(INFO)으로 내보낸다.
-import logging  # noqa: E402
-_gunicorn_logger = logging.getLogger("gunicorn.error")
-if _gunicorn_logger.handlers:
-    app.logger.handlers = _gunicorn_logger.handlers
-    app.logger.setLevel(_gunicorn_logger.level)
-
-# 클러스터 안에서는 서비스 이름으로 서로를 부른다.
-# linkcard-fetcher 는 같은 네임스페이스의 Service 이름이다.
-FETCHER_URL = os.environ.get("FETCHER_URL", "http://linkcard-fetcher:8000")
-TIMEOUT = float(os.environ.get("FETCHER_TIMEOUT", "15"))
 
 # 인그레스가 /linkcard 를 떼고 넘겨 주기 때문에, 앱은 자기가 하위 경로에
 # 있다는 걸 모른다. 그대로 두면 화면의 JS 가 /api/cards 를 절대 경로로
@@ -49,6 +36,23 @@ RESULT_TTL = int(os.environ.get("RESULT_TTL", "3600"))
 _r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 
+def log(event, **fields):
+    """한 줄에 JSON 하나.
+
+    app.logger 로 남기면 gunicorn 이 앞에 '[시각] [pid] [INFO]' 를 붙여서
+    한 줄이 JSON 이 아니게 된다. 그러면 Fluentd 가 필드로 펼치지 못한다.
+    그래서 표준 출력에 JSON 만 곧바로 쓴다.
+    """
+    fields = {k: v for k, v in fields.items() if v is not None}
+    sys.stdout.write(_json.dumps({"event": event, **fields}, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+
+
+def _request_id():
+    """ingress-nginx 가 붙여 준 요청 번호. 없으면(파드에 직접 들어온 요청) 새로 만든다."""
+    return request.headers.get("X-Request-ID") or uuid.uuid4().hex
+
+
 def _save(job_id, data):
     _r.setex(f"job:{job_id}", RESULT_TTL, _json.dumps(data))
 
@@ -58,7 +62,7 @@ def _load(job_id):
     return _json.loads(raw) if raw else None
 
 
-def _publish(job_id, url):
+def _publish(job_id, url, request_id):
     """큐에 작업을 넣는다. 넣기만 하고 결과는 기다리지 않는다."""
     params = pika.URLParameters(RABBIT_URL)
     params.heartbeat = 30
@@ -71,7 +75,10 @@ def _publish(job_id, url):
             body=_json.dumps({"job_id": job_id, "url": url}),
             properties=pika.BasicProperties(
                 delivery_mode=2,                       # 메시지도 디스크에 남긴다
-                content_type="application/json"),
+                content_type="application/json",
+                # AMQP 메시지에는 이런 용도로 correlation_id 라는 칸이 따로 있다.
+                # 워커가 이 번호를 읽어 같은 번호로 로그를 남긴다.
+                correlation_id=request_id),
         )
     finally:
         conn.close()
@@ -190,23 +197,25 @@ def index():
 @app.post("/api/cards")
 def create_card():
     """접수만 하고 바로 답한다. 실제 작업은 워커가 뒤에서 한다."""
+    rid = _request_id()
     url = (request.json or {}).get("url", "").strip()
     if not url.startswith(("http://", "https://")):
+        log("job.rejected", request_id=rid, reason="bad_url", url=url[:200])
         return jsonify(ok=False, error="http(s) 로 시작하는 주소만 받습니다."), 400
 
     job_id = uuid.uuid4().hex[:12]
     started = time.time()
     try:
-        _publish(job_id, url)
+        _publish(job_id, url, rid)
     except Exception as e:
+        log("job.publish_failed", request_id=rid, job_id=job_id, error=str(e)[:200])
         return jsonify(ok=False, error=f"큐에 넣지 못했습니다: {e}"), 503
 
-    _save(job_id, {"status": "queued", "url": url, "queued_at": started})
-
-    app.logger.info("job queued id=%s url=%s in=%.3fs",
-                    job_id, url, time.time() - started)
+    _save(job_id, {"status": "queued", "url": url, "queued_at": started, "request_id": rid})
+    log("job.queued", request_id=rid, job_id=job_id, url=url,
+        accept_ms=round((time.time() - started) * 1000, 1))
     # 202 Accepted — "받았고, 아직 안 끝났다"
-    return jsonify(ok=True, job_id=job_id, status="queued",
+    return jsonify(ok=True, job_id=job_id, request_id=rid, status="queued",
                    accept_elapsed=round(time.time() - started, 3)), 202
 
 
@@ -222,18 +231,24 @@ def get_card(job_id):
 
 @app.post("/internal/result")
 def put_result():
-    """워커가 끝난 결과를 돌려주는 자리."""
+    """워커가 결과(또는 중간 상태)를 돌려주는 자리."""
     d = request.json or {}
     job_id = d.pop("job_id", "")
+    rid_from_worker = d.pop("request_id", "")
     prev = _load(job_id) or {}
+    rid = prev.get("request_id") or rid_from_worker or request.headers.get("X-Request-ID", "")
     waited = round(time.time() - prev.get("queued_at", time.time()), 2)
     # 워커가 status 를 직접 주면(retrying) 그걸 쓰고, 아니면 ok 로 판단한다.
     status = d.pop("status", None) or ("done" if d.get("ok") else "failed")
     # queued_at 을 그대로 들고 간다. 안 그러면 재시도 결과가 들어올 때마다
     # 접수 시각이 사라져 total_wait 이 0 으로 찍힌다.
     _save(job_id, {**d, "status": status, "total_wait": waited,
-                   "queued_at": prev.get("queued_at"), "url": prev.get("url", d.get("url"))})
-    app.logger.info("job done id=%s ok=%s wait=%.2fs", job_id, d.get("ok"), waited)
+                   "queued_at": prev.get("queued_at"), "request_id": rid,
+                   "url": prev.get("url", d.get("url"))})
+    # 앞 편에서는 중간 보고에도 'job done' 이라 찍혀 헷갈렸다.
+    # 상태를 사건 이름에 그대로 쓴다: result.retrying / result.done / result.failed
+    log(f"result.{status}", request_id=rid, job_id=job_id, attempt=d.get("attempt"),
+        total_wait=waited, error=(str(d["error"])[:120] if d.get("error") else None))
     return jsonify(ok=True)
 
 

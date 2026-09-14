@@ -4,8 +4,9 @@
 # 로그 파일은 노드의 디스크에 있다. 파드를 몇 개 띄울지가 아니라
 # "노드마다 반드시 하나" 가 필요하므로 DaemonSet 을 쓴다.
 #
-# control-plane 노드에는 뜨지 않는다. taint 가 걸려 있고 toleration 을
-# 주지 않았기 때문이다. linkcard 파드는 워커에만 뜨니 그걸로 충분하다.
+# control-plane 노드에도 뜨게 toleration 을 준다. ingress-nginx 컨트롤러가
+# control-plane 에 있어서, 요청 번호가 처음 생기는 접근 로그가 거기에 쌓이기 때문이다.
+# (처음에는 워커에만 띄웠다. linkcard 파드만 모을 때는 그걸로 충분했다)
 # ─────────────────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: DaemonSet
@@ -21,6 +22,10 @@ spec:
       labels: { app: fluentd-forwarder }
     spec:
       serviceAccountName: fluentd
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
       containers:
         - name: fluentd
           image: fluent/fluentd-kubernetes-daemonset:v1.19-debian-opensearch-1

@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: worker
-          image: linkcard-worker:v2
+          image: linkcard-worker:v3
           imagePullPolicy: IfNotPresent
           env:
             - { name: RABBIT_URL, value: "amqp://linkcard:linkcard-dev@rabbitmq:5672/%2F" }
