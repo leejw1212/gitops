@@ -1,0 +1,68 @@
+# ─────────────────────────────────────────────────────────────
+# OpenSearch — 모은 로그를 보관하고 검색하는 곳.
+#
+# 앞 편까지 집계기는 로그를 표준 출력으로만 내보냈다. 집계기가 바뀌자
+# 쌓여 있던 581건이 사라졌다. 로그는 디스크에 남아야 하므로 StatefulSet + PVC 다.
+#   → https://autops.run/statefulset-pvc-basics/
+#
+# 실습용 설정이다.
+#   - 노드 하나(single-node). 복제본을 둘 곳이 없다.
+#   - 보안 플러그인을 끈다. 인증 없이 누구나 읽고 쓴다. 밖(Ingress)으로 열지 않는다.
+# ─────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: opensearch
+  namespace: logging
+spec:
+  clusterIP: None            # 헤드리스 — 파드에 고정 이름을 달아 준다
+  selector: { app: opensearch }
+  ports:
+    - { name: http, port: 9200 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: opensearch
+  namespace: logging
+spec:
+  serviceName: opensearch
+  replicas: 1
+  selector:
+    matchLabels: { app: opensearch }
+  template:
+    metadata:
+      labels: { app: opensearch }
+    spec:
+      containers:
+        - name: opensearch
+          image: opensearchproject/opensearch:3.8.0
+          ports:
+            - { name: http, containerPort: 9200 }
+          env:
+            # 혼자서 클러스터를 이룬다. 다른 노드를 찾으러 다니지 않는다.
+            - { name: discovery.type, value: single-node }
+            # 보안 플러그인을 끄고, 데모 인증서·계정도 깔지 않는다.
+            - { name: DISABLE_SECURITY_PLUGIN, value: "true" }
+            - { name: DISABLE_INSTALL_DEMO_CONFIG, value: "true" }
+            # 자바 힙. 기본값(1GB)은 이 실습 클러스터에 크다.
+            # 힙은 컨테이너 메모리 한도의 절반 정도로 둔다 — 나머지는 파일 캐시가 쓴다.
+            - { name: OPENSEARCH_JAVA_OPTS, value: "-Xms512m -Xmx512m" }
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/opensearch/data
+          readinessProbe:
+            httpGet: { path: "/_cluster/health?local=true", port: 9200 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests: { cpu: 200m, memory: 1Gi }
+            limits:   { memory: 1Gi }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 5Gi
