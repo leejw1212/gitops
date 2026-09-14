@@ -19,6 +19,11 @@ app = Flask(__name__)
 FETCHER_URL = os.environ.get("FETCHER_URL", "http://linkcard-fetcher:8000")
 TIMEOUT = float(os.environ.get("FETCHER_TIMEOUT", "15"))
 
+# 인그레스가 /linkcard 를 떼고 넘겨 주기 때문에, 앱은 자기가 하위 경로에
+# 있다는 걸 모른다. 그대로 두면 화면의 JS 가 /api/cards 를 절대 경로로
+# 불러서 엉뚱한 서비스로 간다. 그래서 접두어를 밖에서 알려 준다.
+BASE_PATH = os.environ.get("BASE_PATH", "").rstrip("/")
+
 PAGE = """<!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -62,6 +67,8 @@ PAGE = """<!doctype html>
   </div>
 </div>
 <script>
+// 인그레스가 앞에 붙여 둔 경로. 이게 없으면 요청이 엉뚱한 곳으로 간다.
+const BASE = {{ base_path|tojson }};
 const $ = (id) => document.getElementById(id);
 $('f').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -69,7 +76,7 @@ $('f').addEventListener('submit', async (e) => {
   $('wait').style.display = 'block'; $('b').disabled = true;
   const t0 = performance.now();
   try {
-    const r = await fetch('/api/cards', {
+    const r = await fetch(BASE + '/api/cards', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: $('u').value }),
     });
@@ -102,7 +109,7 @@ def healthz():
 
 @app.get("/")
 def index():
-    return render_template_string(PAGE)
+    return render_template_string(PAGE, base_path=BASE_PATH)
 
 
 @app.post("/api/cards")

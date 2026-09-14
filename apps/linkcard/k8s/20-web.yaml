@@ -21,13 +21,18 @@ spec:
     spec:
       containers:
         - name: web
-          image: linkcard-web:v2
+          image: linkcard-web:v3
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
           env:
             - name: FETCHER_URL
               value: "http://linkcard-fetcher:8000"
+            # 인그레스가 떼어 내는 접두어를 앱에 알려 준다.
+            # 이걸 안 주면 화면의 JS 가 /api/cards 를 절대 경로로 불러
+            # 루트에 붙어 있는 다른 서비스로 요청이 새어 나간다.
+            - name: BASE_PATH
+              value: "/linkcard"
           readinessProbe:
             httpGet: { path: /healthz, port: 8000 }
             initialDelaySeconds: 2
