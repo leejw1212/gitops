@@ -1,0 +1,29 @@
+# ─────────────────────────────────────────────────────────────
+# linkcard 를 ArgoCD 에 맡긴다.
+#
+# 이제부터 이 앱을 바꾸는 방법은 하나뿐이다 — git 에 커밋하는 것.
+# kubectl 로 손대면 selfHeal 이 git 의 상태로 되돌린다.
+# ─────────────────────────────────────────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: linkcard
+  namespace: argocd
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/leejw1212/gitops.git
+    targetRevision: main
+    path: apps/linkcard/k8s
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: linkcard
+
+  syncPolicy:
+    automated:
+      prune: true      # git 에서 지우면 클러스터에서도 지운다
+      selfHeal: true   # 손으로 바꾸면 git 상태로 되돌린다
+    syncOptions:
+      - CreateNamespace=true

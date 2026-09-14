@@ -1,0 +1,75 @@
+# ─────────────────────────────────────────────────────────────
+# web — 사용자가 보는 화면과 API.
+#
+# FETCHER_URL 이 http://linkcard-fetcher:8000 인 것에 주목.
+# 쿠버네티스는 같은 네임스페이스의 Service 이름을 DNS 로 풀어 준다.
+# IP 를 알 필요도, 적어 둘 필요도 없다.
+# ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: linkcard-web
+  namespace: linkcard
+  labels: { app: linkcard-web }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: linkcard-web }
+  template:
+    metadata:
+      labels: { app: linkcard-web }
+    spec:
+      containers:
+        - name: web
+          image: linkcard-web:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: FETCHER_URL
+              value: "http://linkcard-fetcher:8000"
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8000 }
+            initialDelaySeconds: 2
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8000 }
+            initialDelaySeconds: 10
+          resources:
+            requests: { cpu: 20m, memory: 64Mi }
+            limits:   { memory: 192Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: linkcard-web
+  namespace: linkcard
+spec:
+  selector: { app: linkcard-web }
+  ports:
+    - port: 8000
+      targetPort: 8000
+---
+# 브라우저에서 http://localhost/linkcard 로 들어오게 한다.
+# ArgoCD 가 /argocd 를 쓰고 echo 앱이 / 를 쓰고 있어서 경로로 나눈다.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: linkcard
+  namespace: linkcard
+  annotations:
+    # /linkcard/foo 로 들어온 요청을 뒤쪽에는 /foo 로 넘긴다.
+    # 앱이 자기가 하위 경로에 있다는 걸 몰라도 되게 하려는 것.
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: localhost
+      http:
+        paths:
+          - path: /linkcard(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: linkcard-web
+                port:
+                  number: 8000

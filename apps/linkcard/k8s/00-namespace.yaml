@@ -1,0 +1,5 @@
+# 이 서비스들이 살 칸. 나중에 통째로 지우기도 쉽다.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: linkcard
