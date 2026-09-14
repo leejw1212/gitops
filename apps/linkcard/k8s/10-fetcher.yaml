@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: fetcher
-          image: linkcard-fetcher:v2
+          image: linkcard-fetcher:v3
           # kind load 로 노드에 직접 넣었으니 밖에서 받아오지 않는다.
           # 레지스트리를 쓰는 환경이라면 이 줄은 빼야 한다.
           imagePullPolicy: IfNotPresent

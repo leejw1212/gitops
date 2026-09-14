@@ -75,20 +75,52 @@ def _get(url, limit):
 
 
 def _wrap(draw, text, font, max_w, max_lines):
-    """글자를 폭에 맞춰 줄바꿈한다. Pillow 에는 이런 기능이 없어 직접 한다."""
+    """글자를 폭에 맞춰 줄바꿈한다. Pillow 에는 이런 기능이 없어 직접 한다.
+
+    띄어쓰기가 있으면 단어 단위로 끊는다. 글자 단위로만 끊으면 영어 제목이
+    'Orchestrati / on' 처럼 흉하게 갈라진다. 한국어처럼 띄어쓰기가 드물거나
+    한 단어가 너무 길면 그때만 글자 단위로 떨어뜨린다.
+    """
+    def fits(t):
+        return draw.textlength(t, font=font) <= max_w
+
     lines, cur = [], ""
-    for ch in text:
-        trial = cur + ch
-        if draw.textlength(trial, font=font) > max_w and cur:
+    tokens = text.split(" ")
+    for i, word in enumerate(tokens):
+        cand = word if not cur else cur + " " + word
+        if fits(cand):
+            cur = cand
+            continue
+        if cur:
             lines.append(cur)
-            cur = ch
-            if len(lines) == max_lines:
-                return lines[:-1] + [lines[-1][:-1] + "…"]
-        else:
-            cur = trial
-    if cur:
+            cur = ""
+            if len(lines) >= max_lines:
+                break
+        # 한 단어가 통째로 안 들어가면 글자 단위로 자른다
+        piece = ""
+        for ch in word:
+            if fits(piece + ch):
+                piece += ch
+            else:
+                lines.append(piece)
+                piece = ch
+                if len(lines) >= max_lines:
+                    break
+        if len(lines) >= max_lines:
+            break
+        cur = piece
+    if cur and len(lines) < max_lines:
         lines.append(cur)
-    return lines[:max_lines]
+
+    lines = lines[:max_lines]
+    # 다 못 담았으면 마지막 줄 끝에 말줄임표를 붙인다
+    shown = " ".join(lines).replace(" ", "")
+    if lines and len(shown) < len(text.replace(" ", "")):
+        last = lines[-1]
+        while last and not fits(last + "…"):
+            last = last[:-1]
+        lines[-1] = last + "…"
+    return lines
 
 
 def _render_card(title, site, img_bytes):
