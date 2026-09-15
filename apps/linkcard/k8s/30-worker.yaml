@@ -11,7 +11,9 @@ metadata:
   namespace: linkcard
   labels: { app: linkcard-worker }
 spec:
-  replicas: 2            # 늘리면 처리량이 그대로 늘어난다
+  # 9편에서 2 → 6. 느린 작업 20건을 넣자 처리는 건당 2초인데 큐 대기가 p50 10초였다.
+  # 병목은 워커 수였다. 늘리면 처리량이 그대로 늘어난다.
+  replicas: 6
   selector:
     matchLabels: { app: linkcard-worker }
   template:
