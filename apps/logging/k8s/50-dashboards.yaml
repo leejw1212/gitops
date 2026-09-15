@@ -1,0 +1,51 @@
+# ─────────────────────────────────────────────────────────────
+# OpenSearch Dashboards — 쌓인 로그를 화면으로 본다.
+#
+# Ingress 를 만들지 않는다. OpenSearch 의 보안 플러그인을 꺼 두었기 때문에
+# 이 화면에 들어오면 인덱스를 지우는 것까지 누구나 할 수 있다. 그리고 kind 의 80 포트는
+# 0.0.0.0 에 열려 있어서 Ingress 에 걸면 같은 공유기의 다른 기기에서도 들어온다.
+# 그래서 볼 때만 port-forward 로 내 맥(127.0.0.1)에만 연다.
+#   kubectl port-forward -n logging svc/opensearch-dashboards 5601:5601
+# ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opensearch-dashboards
+  namespace: logging
+  labels: { app: opensearch-dashboards }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: opensearch-dashboards }
+  template:
+    metadata:
+      labels: { app: opensearch-dashboards }
+    spec:
+      containers:
+        - name: dashboards
+          image: opensearchproject/opensearch-dashboards:3.8.0
+          ports:
+            - { name: http, containerPort: 5601 }
+          env:
+            # 이미지의 시작 스크립트가 OPENSEARCH_HOSTS 를 opensearch.hosts 설정으로 바꿔 넣는다.
+            - { name: OPENSEARCH_HOSTS, value: '["http://opensearch:9200"]' }
+            # OpenSearch 쪽 보안 플러그인을 껐으니 화면 쪽 보안 플러그인도 뺀다.
+            - { name: DISABLE_SECURITY_DASHBOARDS_PLUGIN, value: "true" }
+          readinessProbe:
+            httpGet: { path: /api/status, port: 5601 }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 512Mi }
+            limits:   { memory: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opensearch-dashboards
+  namespace: logging
+spec:
+  selector: { app: opensearch-dashboards }
+  ports:
+    - { name: http, port: 5601, targetPort: 5601 }

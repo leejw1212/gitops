@@ -109,8 +109,12 @@ def handle(ch, method, props, body):
         return
 
     job_id, url = job.get("job_id"), job.get("url", "")
+    # 접수부터 지금(워커가 꺼낸 순간)까지. 첫 시도라면 순수하게 '큐에서 기다린 시간'이다.
+    # 재시도는 같은 본문을 다시 넣으므로 재시도 대기(5초, 15초)까지 더해진다.
+    queued_at = job.get("queued_at")
+    wait_ms = round((started - queued_at) * 1000, 1) if queued_at else None
     log("job.start", request_id=request_id, job_id=job_id, attempt=attempt,
-        max_attempts=MAX_ATTEMPTS, redelivered=method.redelivered, url=url)
+        max_attempts=MAX_ATTEMPTS, redelivered=method.redelivered, url=url, wait_ms=wait_ms)
 
     result = build_card(url)
     elapsed = round(time.time() - started, 2)
@@ -123,7 +127,7 @@ def handle(ch, method, props, body):
         report(job_id, request_id, result)
         ch.basic_ack(method.delivery_tag)
         log("job.done", request_id=request_id, job_id=job_id, attempt=attempt,
-            elapsed=elapsed, steps=result.get("steps"))
+            wait_ms=wait_ms, elapsed=elapsed, steps=result.get("steps"))
         return
 
     # ── 다시 해 볼 만한 실패 ─────────────────────────────────

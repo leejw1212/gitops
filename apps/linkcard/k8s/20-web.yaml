@@ -1,7 +1,7 @@
 # ─────────────────────────────────────────────────────────────
 # web — 사용자가 보는 화면과 API.
 #
-# FETCHER_URL 이 http://linkcard-fetcher:8000 인 것에 주목.
+# RABBIT_URL · REDIS_URL 의 rabbitmq, redis 는 Service 이름이다.
 # 쿠버네티스는 같은 네임스페이스의 Service 이름을 DNS 로 풀어 준다.
 # IP 를 알 필요도, 적어 둘 필요도 없다.
 # ─────────────────────────────────────────────────────────────
@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: web
-          image: linkcard-web:v9
+          image: linkcard-web:v10
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000

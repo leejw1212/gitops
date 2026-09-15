@@ -62,8 +62,12 @@ def _load(job_id):
     return _json.loads(raw) if raw else None
 
 
-def _publish(job_id, url, request_id):
-    """큐에 작업을 넣는다. 넣기만 하고 결과는 기다리지 않는다."""
+def _publish(job_id, url, request_id, queued_at):
+    """큐에 작업을 넣는다. 넣기만 하고 결과는 기다리지 않는다.
+
+    queued_at(접수 시각)을 함께 넣는다. 워커가 꺼낸 시각과 빼면 '큐에서 기다린 시간'이 된다.
+    이 값이 없으면 느린 게 처리인지 기다림인지 로그만으로 가를 수 없다.
+    """
     params = pika.URLParameters(RABBIT_URL)
     params.heartbeat = 30
     conn = pika.BlockingConnection(params)
@@ -72,7 +76,7 @@ def _publish(job_id, url, request_id):
         ch.queue_declare(queue=QUEUE, durable=True)   # 브로커가 죽어도 큐는 남는다
         ch.basic_publish(
             exchange="", routing_key=QUEUE,
-            body=_json.dumps({"job_id": job_id, "url": url}),
+            body=_json.dumps({"job_id": job_id, "url": url, "queued_at": queued_at}),
             properties=pika.BasicProperties(
                 delivery_mode=2,                       # 메시지도 디스크에 남긴다
                 content_type="application/json",
@@ -206,7 +210,7 @@ def create_card():
     job_id = uuid.uuid4().hex[:12]
     started = time.time()
     try:
-        _publish(job_id, url, rid)
+        _publish(job_id, url, rid, started)
     except Exception as e:
         log("job.publish_failed", request_id=rid, job_id=job_id, error=str(e)[:200])
         return jsonify(ok=False, error=f"큐에 넣지 못했습니다: {e}"), 503
