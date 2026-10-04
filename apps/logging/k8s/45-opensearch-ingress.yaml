@@ -1,0 +1,38 @@
+# ─────────────────────────────────────────────────────────────
+# OpenSearch 를 Ingress 로 연다 — http://localhost/opensearch
+#
+# 보안 플러그인이 꺼져 있어 OpenSearch 자체에는 인증이 없다. kind 의 80 포트는
+# 0.0.0.0 에 열려 같은 네트워크의 다른 기기에서도 닿으므로, nginx Basic Auth 를 앞에 둔다.
+#
+# 비밀번호 Secret(opensearch-basic-auth)은 git 에 넣지 않는다. 클러스터마다 직접 만든다:
+#   kubectl -n logging create secret generic opensearch-basic-auth \
+#     --from-literal=auth="hermes-readonly:$(openssl passwd -apr1 '<비밀번호>')"
+# (ArgoCD 는 자기가 만들지 않은 리소스는 prune 하지 않는다.)
+#
+# 주의: Basic Auth 는 "아무나 못 들어오게" 할 뿐 읽기 전용이 아니다. 통과하면 쓰기도 된다.
+# 읽기 전용은 클라이언트 쪽(MCP 의 OPENSEARCH_SETTINGS_ALLOW_WRITE=false + 도구 화이트리스트)에서 건다.
+# ─────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: opensearch
+  namespace: logging
+  annotations:
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: opensearch-basic-auth
+    nginx.ingress.kubernetes.io/auth-realm: "OpenSearch"
+    # /opensearch/_cat/indices → 뒤쪽에는 /_cat/indices 로 넘긴다
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: localhost
+      http:
+        paths:
+          - path: /opensearch(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: opensearch
+                port:
+                  number: 9200

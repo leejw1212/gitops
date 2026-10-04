@@ -10,6 +10,7 @@ resources:
   - 20-aggregator.yaml
   - 30-forwarder.yaml
   - 40-opensearch.yaml
+  - 45-opensearch-ingress.yaml
   - 50-dashboards.yaml
 #
 # forwarder 와 aggregator 설정을 ConfigMap 하나에 묶으면, 한쪽만 고쳐도
